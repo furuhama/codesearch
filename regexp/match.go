@@ -381,6 +381,16 @@ func (g *Grep) File(name string) {
 	g.Reader(f, name)
 }
 
+// FileToSearchResult is almost the same as File
+func (g *Grep) FileToSearchResult(name string) ([]*SearchResult, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return []*SearchResult{}, err
+	}
+	defer f.Close()
+	return g.ReadToSearchResult(f, name), nil
+}
+
 var nl = []byte{'\n'}
 
 func countNL(b []byte) int {
