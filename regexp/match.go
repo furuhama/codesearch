@@ -478,3 +478,70 @@ func (g *Grep) Reader(r io.Reader, name string) {
 		fmt.Fprintf(g.Stdout, "%s: %d\n", name, count)
 	}
 }
+
+type SearchResult struct {
+	Path   string
+	Lineno int
+	Line   []byte
+}
+
+// ReadToSearchResult is almost the same as `Reader()` but returns structured data to be called by another go codes
+// Currently, this function cares about just -n option, -l, -c, -h options are ignored.
+func (g *Grep) ReadToSearchResult(r io.Reader, name string) []*SearchResult {
+	if g.buf == nil {
+		g.buf = make([]byte, 1<<20)
+	}
+	var (
+		buf       = g.buf[:0]
+		lineno    = 1
+		prefix    = name + ":"
+		beginText = true
+		endText   = false
+		results   []*SearchResult
+	)
+	for {
+		n, err := io.ReadFull(r, buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		end := len(buf)
+		if err == nil {
+			i := bytes.LastIndex(buf, nl)
+			if i >= 0 {
+				end = i + 1
+			}
+		} else {
+			endText = true
+		}
+		chunkStart := 0
+		for chunkStart < end {
+			m1 := g.Regexp.Match(buf[chunkStart:end], beginText, endText) + chunkStart
+			beginText = false
+			if m1 < chunkStart {
+				break
+			}
+			g.Match = true
+			lineStart := bytes.LastIndex(buf[chunkStart:m1], nl) + 1 + chunkStart
+			lineEnd := m1 + 1
+			if lineEnd > end {
+				lineEnd = end
+			}
+			lineno += countNL(buf[chunkStart:lineStart])
+			line := buf[lineStart:lineEnd]
+			results = append(results, &SearchResult{Path: prefix, Lineno: lineno, Line: line})
+			lineno++
+			chunkStart = lineEnd
+		}
+		if err == nil {
+			lineno += countNL(buf[chunkStart:end])
+		}
+		n = copy(buf, buf[end:])
+		buf = buf[:n]
+		if len(buf) == 0 && err != nil {
+			// TODO: Needs error handling
+			if err != io.EOF && err != io.ErrUnexpectedEOF {
+				fmt.Fprintf(g.Stderr, "%s: %v\n", name, err)
+			}
+			break
+		}
+	}
+	return results
+}
